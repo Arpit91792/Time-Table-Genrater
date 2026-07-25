@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+
+<head>
+      <meta charset="utf-8" />
+      <title>Test Downloads</title>
+</head>
+
+<body>
+      <h1>Test CSV and Excel Downloads</h1>
+      <div id="log"></div>
+      <button id="csvBtn">Download CSV</button>
+      <button id="xlsBtn">Download XLSX</button>
+
+      <script>
+            function log(msg) { const d = document.getElementById('log'); const p = document.createElement('p'); p.textContent = msg; d.appendChild(p); }
+
+            document.getElementById('csvBtn').addEventListener('click', () => {
+                  try {
+                        const rows = [['Group', 'Day', 'Time', 'Sub'], ['A', 'Mon', '08:00-08:50', 'Math']]
+                        const csv = rows.map(r => r.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n')
+                        const bom = '\uFEFF'
+                        const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.style.display = 'none'
+                        a.href = url
+                        a.setAttribute('download', 'test_timetable.csv')
+                        document.body.appendChild(a)
+                        a.click()
+                        a.remove()
+                        setTimeout(() => URL.revokeObjectURL(url), 200)
+                        log('CSV download attempted')
+                  } catch (e) { log('CSV error: ' + e.message) }
+            })
+
+            document.getElementById('xlsBtn').addEventListener('click', async () => {
+                  try {
+                        if (!window.XLSX) {
+                              await new Promise(res => { const s = document.createElement('script'); s.src = 'https://unpkg.com/xlsx/dist/xlsx.full.min.js'; s.onload = res; s.onerror = () => res(); document.head.appendChild(s); })
+                        }
+                        const wb = XLSX.utils.book_new()
+                        const ws = XLSX.utils.aoa_to_sheet([['Group', 'Day', 'Time', 'Sub'], ['A', 'Mon', '08:00-08:50', 'Math']])
+                        XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+                        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+                        const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.style.display = 'none'
+                        a.href = url
+                        a.setAttribute('download', 'test_timetable.xlsx')
+                        document.body.appendChild(a)
+                        a.click()
+                        a.remove()
+                        setTimeout(() => URL.revokeObjectURL(url), 200)
+                        log('XLSX download attempted')
+                  } catch (e) { log('XLSX error: ' + e.message) }
+            })
+
+            // Auto-click both buttons shortly after load to test
+            window.addEventListener('load', () => {
+                  setTimeout(() => { document.getElementById('csvBtn').click(); document.getElementById('xlsBtn').click(); }, 800)
+            })
+      </script>
+</body>
+
+</html>

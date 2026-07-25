@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Timetable Generator API</title>
+      <style>
+            body {
+                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                  line-height: 1.6;
+                  margin: 0;
+                  padding: 0;
+                  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  min-height: 100vh;
+                  color: #333;
+            }
+
+            .container {
+                  max-width: 800px;
+                  margin: 50px auto;
+                  padding: 30px;
+                  background: white;
+                  border-radius: 20px;
+                  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            }
+
+            h1 {
+                  color: #4a5568;
+                  text-align: center;
+                  margin-bottom: 30px;
+                  font-size: 2.5rem;
+            }
+
+            .status {
+                  background: #48bb78;
+                  color: white;
+                  padding: 10px 20px;
+                  border-radius: 10px;
+                  display: inline-block;
+                  margin-bottom: 30px;
+            }
+
+            .endpoint {
+                  background: #f7fafc;
+                  border: 1px solid #e2e8f0;
+                  border-radius: 10px;
+                  padding: 20px;
+                  margin-bottom: 20px;
+            }
+
+            .method {
+                  display: inline-block;
+                  padding: 5px 10px;
+                  border-radius: 5px;
+                  color: white;
+                  font-weight: bold;
+                  margin-right: 10px;
+            }
+
+            .method.get {
+                  background: #38a169;
+            }
+
+            .method.post {
+                  background: #3182ce;
+            }
+
+            .method.put {
+                  background: #d69e2e;
+            }
+
+            .method.delete {
+                  background: #e53e3e;
+            }
+
+            .url {
+                  font-family: 'Courier New', monospace;
+                  background: #edf2f7;
+                  padding: 5px 10px;
+                  border-radius: 5px;
+                  margin-left: 10px;
+            }
+
+            .description {
+                  margin-top: 10px;
+                  color: #4a5568;
+            }
+
+            .links {
+                  margin-top: 30px;
+                  text-align: center;
+            }
+
+            .btn {
+                  display: inline-block;
+                  padding: 12px 24px;
+                  background: #4a5568;
+                  color: white;
+                  text-decoration: none;
+                  border-radius: 10px;
+                  margin: 0 10px;
+                  transition: transform 0.2s;
+            }
+
+            .btn:hover {
+                  transform: translateY(-2px);
+            }
+
+            .btn-primary {
+                  background: #4299e1;
+            }
+      </style>
+</head>
+
+<body>
+      <div class="container">
+            <h1>📅 Smart College Timetable Generator API</h1>
+
+            <div class="status">
+                  ✅ Server is running on port 5001
+            </div>
+
+            <h2>Available Endpoints:</h2>
+
+            <div class="endpoint">
+                  <span class="method get">GET</span>
+                  <span class="url">/health</span>
+                  <div class="description">Health check endpoint</div>
+            </div>
+
+            <div class="endpoint">
+                  <span class="method get">GET</span>
+                  <span class="url">/api/faculty</span>
+                  <div class="description">Get all faculty members</div>
+            </div>
+
+            <div class="endpoint">
+                  <span class="method get">GET</span>
+                  <span class="url">/api/subjects</span>
+                  <div class="description">Get all subjects</div>
+            </div>
+
+            <div class="endpoint">
+                  <span class="method get">GET</span>
+                  <span class="url">/api/branches</span>
+                  <div class="description">Get all branches</div>
+            </div>
+
+            <div class="endpoint">
+                  <span class="method get">GET</span>
+                  <span class="url">/api/rooms</span>
+                  <div class="description">Get all rooms</div>
+            </div>
+
+            <div class="endpoint">
+                  <span class="method post">POST</span>
+                  <span class="url">/api/timetable/generate</span>
+                  <div class="description">Generate new timetable</div>
+            </div>
+
+            <div class="links">
+                  <a href="http://localhost:5174" class="btn btn-primary">Go to Frontend</a>
+                  <a href="/api/faculty" class="btn">Test Faculty API</a>
+            </div>
+      </div>
+</body>
+
+</html>
