@@ -156,6 +156,19 @@ function validateChange(slots, changedSlotId, newFacultyName) {
 // ─── Theory Cell — full content: SubjectName, SubjectCode, Faculty, Room ─────
 function TheoryCell({ slot, onEdit }) {
       if (!slot) return <td className="tt-cell tt-empty" />
+      // Fixed activity slot — distinct appearance
+      if (slot.isFixed || slot.type === 'Activity' || slot.type === 'Assembly' || slot.type === 'Sports' ||
+            slot.type === 'Library' || slot.type === 'Seminar' || slot.type === 'Placement' || slot.type === 'Mentoring') {
+            return (
+                  <td className="tt-cell tt-activity" title={slot.notes || ''}>
+                        <span className="tt-activity-badge">{slot.type || 'Activity'}</span>
+                        <span className="tt-subject">{slot.subjectName || slot.activityName || '—'}</span>
+                        {slot.facultyName && <span className="tt-faculty">{slot.facultyName}</span>}
+                        {slot.room && <span className="tt-room">{slot.room}</span>}
+                        {slot.isLocked && <span className="tt-lock-icon">🔒</span>}
+                  </td>
+            )
+      }
       return (
             <td className="tt-cell tt-theory group" onDoubleClick={() => onEdit && onEdit(slot)}>
                   <span className="tt-subject">{slot.subjectName || '—'}</span>

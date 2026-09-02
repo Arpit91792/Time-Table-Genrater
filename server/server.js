@@ -40,6 +40,8 @@ const timeslotRoutes = require('./routes/timeslot.routes');
 const timetableRoutes = require('./routes/timetable.routes');
 const teacherMappingRoutes = require('./routes/teacherMapping.routes');
 const collegeTimingRoutes = require('./routes/collegeTiming.routes');
+const fixedSlotRoutes = require('./routes/fixedSlot.routes');
+const teacherAvailabilityRoutes = require('./routes/teacherAvailability.routes');
 
 // Mount routes
 app.use('/api/auth', authRoutes);
@@ -53,6 +55,8 @@ app.use('/api/timeslots', timeslotRoutes);
 app.use('/api/timetables', timetableRoutes);
 app.use('/api/teacher-mapping', teacherMappingRoutes);
 app.use('/api/college-timing', collegeTimingRoutes);
+app.use('/api/fixed-slots', fixedSlotRoutes);
+app.use('/api/teacher-availability', teacherAvailabilityRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Info, Clock, Calendar, Building, Save, CheckCircle } from 'lucide-react'
 import { EmptyCollegeTiming } from '../../common/EmptyState'
+import FixedActivitySlots from './FixedActivitySlots'
 
 const Step1CollegeTiming = ({ data, onChange, onSave, isSaving, savedData }) => {
       const [isModified, setIsModified] = useState(false)
@@ -425,6 +426,13 @@ const Step1CollegeTiming = ({ data, onChange, onSave, isSaving, savedData }) => 
                                     </div>
                               </div>
                         </div>
+                  </div>
+
+                  {/* Fixed Activity Slots */}
+                  <div className="mt-8">
+                        <FixedActivitySlots onSlotsChange={(slots) => {
+                              if (onChange) onChange({ ...currentData, fixedSlots: slots })
+                        }} />
                   </div>
 
                   {/* Summary Card */}

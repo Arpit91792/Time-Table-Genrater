@@ -230,4 +230,4 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Note**: This is a professional-grade timetable system designed for college administration. The system automatically handles complex scheduling constraints and provides multiple export options for easy distribution.
+**Note**: This is a professional-grade t2imetable system designed for college administration. The system automatically handles complex scheduling constraints and provides multiple export options for easy distribution.e 

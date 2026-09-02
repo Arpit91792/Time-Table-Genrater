@@ -267,6 +267,57 @@
   background: #dcfce7;
 }
 
+/* Fixed Activity cell — indigo/purple theme */
+.tt-activity {
+  background: #f5f3ff;
+  border: 1px solid #c4b5fd !important;
+  vertical-align: middle;
+  padding: 5px 4px;
+  min-height: 44px;
+  height: auto;
+  overflow: hidden;
+  word-break: break-word;
+  text-align: center;
+}
+
+.tt-activity-badge {
+  display: inline-block;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-bottom: 2px;
+}
+
+.tt-activity .tt-subject {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #4c1d95;
+}
+
+.tt-activity .tt-faculty {
+  display: block;
+  font-size: 9px;
+  color: #6d28d9;
+}
+
+.tt-activity .tt-room {
+  font-size: 9px;
+  color: #a78bfa;
+}
+
+.tt-lock-icon {
+  display: block;
+  font-size: 9px;
+  color: #7c3aed;
+  margin-top: 1px;
+}
+
 .tt-batch-row {
   display: flex;
   align-items: flex-start;

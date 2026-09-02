@@ -7,8 +7,7 @@ const timetableSlotSchema = new mongoose.Schema({
             enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
       },
       slot: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'TimeSlot',
+            type: String,
             required: [true, 'Time slot is required']
       },
       subject: {
@@ -38,6 +37,10 @@ const timetableSlotSchema = new mongoose.Schema({
 });
 
 const timetableSchema = new mongoose.Schema({
+      schedule: {
+            type: Object,
+            default: {}
+      },
       name: {
             type: String,
             required: [true, 'Timetable name is required'],

@@ -188,3 +188,37 @@ exports.updateAvailability = async (req, res, next) => {
             next(error);
       }
 };
+
+// @desc    Lock a time range for faculty (creates a TeacherAvailability record)
+// @route   POST /api/faculty/:id/lock-time
+// @access  Private/Faculty
+exports.lockTime = async (req, res, next) => {
+      try {
+            const TeacherAvailability = require('../models/TeacherAvailability.model');
+            const faculty = await Faculty.findById(req.params.id);
+            if (!faculty) {
+                  return res.status(404).json({ success: false, message: 'Faculty not found' });
+            }
+
+            const { day, startTime, endTime, reason, category } = req.body;
+            if (!day || !startTime || !endTime) {
+                  return res.status(400).json({ success: false, message: 'day, startTime and endTime are required' });
+            }
+
+            const payload = {
+                  facultyId: faculty._id,
+                  facultyName: faculty.name,
+                  day,
+                  startTime,
+                  endTime,
+                  reason: reason || 'Locked by admin',
+                  category: category || 'Administrative Duty'
+            };
+
+            const rec = await TeacherAvailability.create(payload);
+
+            res.status(201).json({ success: true, data: rec });
+      } catch (error) {
+            next(error);
+      }
+};

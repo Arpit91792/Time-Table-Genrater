@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Calendar, Brain, AlertCircle, CheckCircle, BookOpen, Users, Clock, ChevronRight, TrendingUp } from 'lucide-react'
 import { useTimetable } from '../../../context/TimetableContext'
+import { fixedSlotApi } from '../../../services/api'
 
 // ─── Semester sets ───────────────────────────────────────────────────────────
 const SEMESTER_SETS = {
@@ -9,6 +10,128 @@ const SEMESTER_SETS = {
   all: [1, 2, 3, 4, 5, 6, 7, 8]
 }
 const getAllowedSems = (semType) => SEMESTER_SETS[semType] || SEMESTER_SETS.all
+
+const normalizeSubjectName = (value) => String(value || '')
+  .trim()
+  .toUpperCase()
+  .replace(/[^A-Z0-9]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const normalizeSubjectCode = (value) => String(value || '').trim().toUpperCase()
+const sameSubject = (left, right) => {
+  const leftCode = normalizeSubjectCode(left.subjectCode)
+  const rightCode = normalizeSubjectCode(right.subjectCode)
+  const leftName = normalizeSubjectName(left.subjectName)
+  const rightName = normalizeSubjectName(right.subjectName)
+  return (leftCode && rightCode && leftCode === rightCode) || (leftName && rightName && leftName === rightName)
+}
+const continuousPractical = (left, right) => left.type === 'Practical' && right.type === 'Practical' &&
+  left.startTime <= right.endTime && right.startTime <= left.endTime
+
+const validatePairedLabSessions = (slots) => {
+  const sectionDayMap = {}
+  const conflicts = []
+
+  slots.filter(slot => slot && slot.type === 'Practical').forEach(slot => {
+    const sectionKey = `${slot.branch}-${slot.section}-${slot.semester}`
+    const key = `${sectionKey}|${slot.day}`
+    if (!sectionDayMap[key]) sectionDayMap[key] = []
+    sectionDayMap[key].push(slot)
+  })
+
+  Object.entries(sectionDayMap).forEach(([sectionDayKey, entries]) => {
+    const batchMap = { B1: [], B2: [] }
+    entries.forEach(entry => {
+      if (entry.batch === 'B1' || entry.batch === 'B2') batchMap[entry.batch].push(entry)
+    })
+
+    const hasBatch1 = batchMap.B1.length > 0
+    const hasBatch2 = batchMap.B2.length > 0
+    if (hasBatch1 !== hasBatch2) {
+      conflicts.push({
+        type: 'pairedLabMismatch',
+        message: 'Batch lab pairing mismatch: one batch has a lab and the other does not.',
+        section: sectionDayKey.split('|')[0],
+        day: sectionDayKey.split('|')[1],
+        existingPeriod: hasBatch1 ? batchMap.B1[0].startTime : batchMap.B2[0].startTime,
+        conflictingPeriod: 'missing batch',
+      })
+      return
+    }
+
+    if (!hasBatch1 || !hasBatch2) return
+
+    if (batchMap.B1.length > 1 || batchMap.B2.length > 1) {
+      conflicts.push({
+        type: 'pairedLabMismatch',
+        message: 'A batch has more than one separate lab session on the same day.',
+        section: sectionDayKey.split('|')[0],
+        day: sectionDayKey.split('|')[1],
+        existingPeriod: batchMap.B1[0]?.startTime || batchMap.B2[0]?.startTime,
+        conflictingPeriod: batchMap.B1[1]?.startTime || batchMap.B2[1]?.startTime,
+      })
+    }
+
+    const b1 = batchMap.B1[0]
+    const b2 = batchMap.B2[0]
+    if (!b1 || !b2) return
+
+    if (sameSubject(b1, b2)) {
+      conflicts.push({
+        type: 'pairedLabMismatch',
+        message: 'Batch lab subjects must be different on the same day.',
+        section: sectionDayKey.split('|')[0],
+        day: sectionDayKey.split('|')[1],
+        subject: b1.subjectName || b1.subjectCode,
+        existingPeriod: b1.startTime,
+        conflictingPeriod: b2.startTime,
+      })
+    }
+
+    if (b1.startTime !== b2.startTime || b1.endTime !== b2.endTime) {
+      conflicts.push({
+        type: 'pairedLabMismatch',
+        message: 'Batch lab periods must be synchronized exactly.',
+        section: sectionDayKey.split('|')[0],
+        day: sectionDayKey.split('|')[1],
+        subject: b1.subjectName || b1.subjectCode,
+        existingPeriod: b1.startTime,
+        conflictingPeriod: b2.startTime,
+      })
+    }
+  })
+
+  return conflicts
+}
+
+const validateLabDailyLimit = (slots) => {
+  const conflicts = []
+  const sectionDayMap = {}
+
+  slots.filter(slot => slot && slot.type === 'Practical').forEach(slot => {
+    const sectionKey = `${slot.branch}-${slot.section}-${slot.semester}`
+    const key = `${sectionKey}|${slot.day}`
+    if (!sectionDayMap[key]) sectionDayMap[key] = new Set()
+    sectionDayMap[key].add(`${slot.startTime}|${slot.endTime}`)
+  })
+
+  Object.entries(sectionDayMap).forEach(([sectionDayKey, sessionSet]) => {
+    if (sessionSet.size > 1) {
+      const [section, day] = sectionDayKey.split('|')
+      conflicts.push({
+        type: 'labDailyLimit',
+        message: 'Maximum one synchronized lab session per section per day.',
+        section,
+        day,
+        existingPeriod: 'existing lab session',
+        conflictingPeriod: 'additional lab session',
+      })
+    }
+  })
+
+  return conflicts
+}
 
 // ─── Build time-slots from college timing ────────────────────────────────────
 function buildTimeSlots(timing) {
@@ -73,7 +196,7 @@ function getFacultyShort(name, allFaculty = []) {
 //   loadPractical = total practical periods per WEEK (e.g. 2 → 1 session of 2 consecutive periods)
 //                  Each practical SESSION uses exactly 2 lecture slots.
 //   sessionsNeeded = loadPractical / 2  (rounds up; minimum 1)
-function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType }) {
+function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType, fixedSlots = [] }) {
   const allowedSems = getAllowedSems(semType)
   const workingDays = Object.entries(collegeTiming.workingDays || {})
     .filter(([, v]) => v)
@@ -85,6 +208,7 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
   // ── Conflict tracking ────────────────────────────────────────────────────
   const facultyBusy = {}
   const sectionBusy = {}
+  const subjectDaySessions = {}
 
   const busyKey = (day, time) => `${day}|${time}`
 
@@ -101,6 +225,13 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
     !facultyId || !facultyBusy[facultyId]?.has(busyKey(day, time))
   const isSectionFree = (sectionKey, day, time) =>
     !sectionBusy[sectionKey]?.has(busyKey(day, time))
+  const hasSubjectConflict = (sectionKey, day, entry) =>
+    (subjectDaySessions[sectionKey]?.[day] || []).some(existing => sameSubject(existing, entry) && !continuousPractical(existing, entry))
+  const registerSubject = (sectionKey, day, entry) => {
+    if (!subjectDaySessions[sectionKey]) subjectDaySessions[sectionKey] = {}
+    if (!subjectDaySessions[sectionKey][day]) subjectDaySessions[sectionKey][day] = []
+    subjectDaySessions[sectionKey][day].push(entry)
+  }
 
   const roomBusy = {}
   const markRoom = (room, day, time) => {
@@ -110,6 +241,83 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
   }
   const isRoomFree = (room, day, time) =>
     !room || !roomBusy[room]?.has(busyKey(day, time))
+
+  // ── Pre-reserve fixed activity slots ─────────────────────────────────────
+  // Helper: convert HH:MM → minutes
+  const toMinutes = (hhmm = '00:00') => {
+    const [h, m] = (hhmm || '00:00').split(':').map(Number)
+    return (h || 0) * 60 + (m || 0)
+  }
+
+  // Build group keys so we know which sections exist
+  const _tempGroupKeys = new Set()
+  mappings.forEach(m => {
+    if (!m || !m.branch || !m.section || !m.semester) return
+    const sem = Number(m.semester)
+    if (!getAllowedSems(semType).includes(sem)) return
+    _tempGroupKeys.add(`${(m.branch || '').toUpperCase()}-${(m.section || '').toUpperCase()}-${sem}`)
+  })
+  subjects.forEach(s => {
+    if (!s.branch || !s.section || !s.semester) return
+    const sem = Number(s.semester)
+    if (!getAllowedSems(semType).includes(sem)) return
+    _tempGroupKeys.add(`${(s.branch || '').toUpperCase()}-${(s.section || '').toUpperCase()}-${sem}`)
+  })
+
+  const fixedSlotEntries = []
+  fixedSlots.filter(fs => fs && fs.isActive !== false).forEach(fs => {
+    const scope = (fs.scope || 'College').toUpperCase()
+    const fsBranch = (fs.branch || '').toUpperCase()
+    const fsSem = fs.semester ? Number(fs.semester) : null
+    const fsSection = (fs.section || '').toUpperCase()
+
+    // Determine affected group keys
+    const affectedKeys = [..._tempGroupKeys].filter(gk => {
+      const [gb, gs, gSem] = gk.split('-')
+      if (scope === 'COLLEGE') return true
+      if (scope === 'BRANCH') return fsBranch && gb === fsBranch
+      if (scope === 'SEMESTER') return fsBranch && gb === fsBranch && fsSem && Number(gSem) === fsSem
+      if (scope === 'SECTION') return fsBranch && gb === fsBranch && fsSem && Number(gSem) === fsSem && fsSection && gs === fsSection
+      return false
+    })
+
+    affectedKeys.forEach(gk => {
+      const [gb, gs, gSem] = gk.split('-')
+      // Generate time keys for every lecture slot that overlaps the fixed window
+      const fsStart = toMinutes(fs.startTime)
+      const fsEnd = toMinutes(fs.endTime)
+
+      lectureSlots.forEach(ls => {
+        const lsStart = toMinutes(ls.startTime)
+        const lsEnd = toMinutes(ls.endTime || ls.startTime)
+        // overlap check
+        if (lsStart < fsEnd && lsEnd > fsStart) {
+          markSection(gk, fs.day, ls.startTime)
+          if (fs.facultyName) markFaculty(fs.facultyName, fs.day, ls.startTime)
+          if (fs.roomName) markRoom(fs.roomName, fs.day, ls.startTime)
+        }
+      })
+
+      fixedSlotEntries.push({
+        id: `fixed-${fs._id || Math.random().toString(36).slice(2)}-${gk}`,
+        day: fs.day,
+        branch: gb,
+        section: gs,
+        semester: Number(gSem),
+        startTime: fs.startTime,
+        endTime: fs.endTime,
+        subjectCode: fs.subjectCode || '',
+        subjectName: fs.activityName || fs.activityType || 'Activity',
+        facultyName: fs.facultyName || '',
+        facultyId: fs.facultyId || '',
+        room: fs.roomName || '',
+        batch: '',
+        type: fs.activityType || 'Activity',
+        isFixed: true,
+        isLocked: true,
+      })
+    })
+  })
 
   const filteredSubjects = subjects.filter(s => allowedSems.includes(Number(s.semester)))
   // Alerts must be available before any non-blocking validation pushes
@@ -220,157 +428,153 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
     if (!facultyLoadMap[id]) facultyLoadMap[id] = { facultyName: name || id, assignedTheory: 0, scheduledTheory: 0, assignedPractical: 0, scheduledPractical: 0 }
   }
 
+  // ── Per-section-per-day lab tracker (max 1 lab session per section per day) ─
+  // key: sectionKey → Set of days that already have a lab scheduled
+  const sectionDayHasLab = {}
+  const isDayLabFree = (sectionKey, day) => !sectionDayHasLab[sectionKey]?.has(day)
+  const markDayLab = (sectionKey, day) => {
+    if (!sectionDayHasLab[sectionKey]) sectionDayHasLab[sectionKey] = new Set()
+    sectionDayHasLab[sectionKey].add(day)
+  }
+
   // ── PASS 1: Schedule Practicals ───────────────────────────────────────────
+  //
+  // Rule: In each lab session slot, B1 and B2 must have DIFFERENT subjects.
+  // Pairing strategy: collect all B1 mappings and all B2 mappings for the
+  // section, then zip them by insertion order — B1[0]+B2[0], B1[1]+B2[1], etc.
+  // This respects the order they were created in demoData (Session1-B1 with
+  // Session1-B2, Session2-B1 with Session2-B2, etc.) which guarantees
+  // different subjects per pair.
+  //
   Object.values(groupMap).forEach(group => {
     const { branch, section, semester, practicals } = group
     const sectionKey = `${branch}-${section}-${semester}`
 
-    const entries = practicals.map((mapping, index) => {
-      const load = Number(mapping.loadPractical) || 2
-      const sessionsNeeded = Math.max(1, Math.ceil(load / 2))
-      const facultyId = mapping.facultyId || ''
-      const facultyName = mapping.facultyName || 'TBD'
-      ensureFacLoad(facultyId, facultyName)
-      if (facultyId) facultyLoadMap[facultyId].assignedPractical += sessionsNeeded
-      practicalRequired += sessionsNeeded
-
-      return {
-        ...mapping,
-        sessionsRemaining: sessionsNeeded,
-        sessionsNeeded,
-        facultyId,
-        facultyName,
-        room: mapping.preferredRoom || '',
-        uniqueKey: `${mapping.subjectCode || mapping.subjectName}-${facultyId}-${index}`,
-      }
+    // Split into ordered B1 list and ordered B2 list
+    const b1List = practicals.filter(m => (m.batch || '').toUpperCase() === 'B1')
+    const b2List = practicals.filter(m => (m.batch || '').toUpperCase() === 'B2')
+    const soloList = practicals.filter(m => {
+      const b = (m.batch || '').toUpperCase()
+      return b !== 'B1' && b !== 'B2'
     })
 
-    const availableEntries = () => entries.filter(e => e.sessionsRemaining > 0)
-
-    const findBestPair = () => {
-      const candidates = availableEntries()
-      for (let i = 0; i < candidates.length; i++) {
-        for (let j = i + 1; j < candidates.length; j++) {
-          const a = candidates[i]
-          const b = candidates[j]
-          const sameFaculty = a.facultyId && b.facultyId && a.facultyId === b.facultyId
-          const sameRoom = a.room && b.room && a.room === b.room
-          if (sameFaculty || sameRoom) continue
-          if (a.subjectCode !== b.subjectCode) return [a, b]
-        }
-      }
-      for (let i = 0; i < candidates.length; i++) {
-        for (let j = i + 1; j < candidates.length; j++) {
-          const a = candidates[i]
-          const b = candidates[j]
-          const sameFaculty = a.facultyId && b.facultyId && a.facultyId === b.facultyId
-          const sameRoom = a.room && b.room && a.room === b.room
-          if (sameFaculty || sameRoom) continue
-          return [a, b]
-        }
-      }
-      return [null, null]
+    // Build session units by zipping b1[i] with b2[i]
+    const sessionUnits = []
+    const pairCount = Math.min(b1List.length, b2List.length)
+    for (let i = 0; i < pairCount; i++) {
+      const b1m = b1List[i]
+      const b2m = b2List[i]
+      const load = Math.max(Number(b1m.loadPractical) || 2, Number(b2m.loadPractical) || 2)
+      const sessionsNeeded = Math.max(1, Math.ceil(load / 2))
+      ensureFacLoad(b1m.facultyId || '', b1m.facultyName)
+      ensureFacLoad(b2m.facultyId || '', b2m.facultyName)
+      if (b1m.facultyId) facultyLoadMap[b1m.facultyId].assignedPractical += sessionsNeeded
+      if (b2m.facultyId) facultyLoadMap[b2m.facultyId].assignedPractical += sessionsNeeded
+      practicalRequired += sessionsNeeded
+      sessionUnits.push({
+        b1: { ...b1m, facultyId: b1m.facultyId || '', room: b1m.preferredLab || b1m.preferredRoom || '' },
+        b2: { ...b2m, facultyId: b2m.facultyId || '', room: b2m.preferredLab || b2m.preferredRoom || '' },
+        sessionsRemaining: sessionsNeeded,
+      })
     }
+    // Unmatched B1s or solos
+    const unmatched = [
+      ...b1List.slice(pairCount),
+      ...b2List.slice(pairCount),
+      ...soloList,
+    ]
+    unmatched.forEach(m => {
+      const load = Number(m.loadPractical) || 2
+      const sessionsNeeded = Math.max(1, Math.ceil(load / 2))
+      ensureFacLoad(m.facultyId || '', m.facultyName)
+      if (m.facultyId) facultyLoadMap[m.facultyId].assignedPractical += sessionsNeeded
+      practicalRequired += sessionsNeeded
+      sessionUnits.push({
+        b1: { ...m, facultyId: m.facultyId || '', room: m.preferredLab || m.preferredRoom || '' },
+        b2: null,
+        sessionsRemaining: sessionsNeeded,
+      })
+    })
 
     const getNextConsecutiveSlot = (index) => {
       for (let ni = index + 1; ni < lectureSlots.length; ni++) {
-        if (lectureSlots[ni].startTime === lectureSlots[index].endTime) {
-          return lectureSlots[ni]
-        }
+        if (lectureSlots[ni].startTime === lectureSlots[index].endTime) return lectureSlots[ni]
       }
       return null
     }
 
-    while (availableEntries().length >= 2) {
-      const [b1, b2] = findBestPair()
-      if (!b1 || !b2) break
+    for (const unit of sessionUnits) {
+      while (unit.sessionsRemaining > 0) {
+        const b1 = unit.b1
+        const b2 = unit.b2
+        let placed = false
 
-      let placed = false
-      outer: for (const day of workingDays) {
-        for (let si = 0; si < lectureSlots.length; si++) {
-          if (placed) break outer
+        outer: for (const day of workingDays) {
+          if (!isDayLabFree(sectionKey, day)) continue
+          for (let si = 0; si < lectureSlots.length; si++) {
+            if (placed) break outer
+            const ts1 = lectureSlots[si]
+            const ts2 = getNextConsecutiveSlot(si)
+            if (!ts2) continue
 
-          const ts1 = lectureSlots[si]
-          const ts2 = getNextConsecutiveSlot(si)
-          if (!ts2) continue
+            if (!isSectionFree(sectionKey, day, ts1.startTime)) continue
+            if (!isSectionFree(sectionKey, day, ts2.startTime)) continue
+            if (!isFacultyFree(b1.facultyId, day, ts1.startTime)) continue
+            if (!isFacultyFree(b1.facultyId, day, ts2.startTime)) continue
+            if (b2 && !isFacultyFree(b2.facultyId, day, ts1.startTime)) continue
+            if (b2 && !isFacultyFree(b2.facultyId, day, ts2.startTime)) continue
+            if (!isRoomFree(b1.room, day, ts1.startTime)) continue
+            if (!isRoomFree(b1.room, day, ts2.startTime)) continue
+            if (b2 && !isRoomFree(b2.room, day, ts1.startTime)) continue
+            if (b2 && !isRoomFree(b2.room, day, ts2.startTime)) continue
+            if (hasSubjectConflict(sectionKey, day, { subjectCode: b1.subjectCode, subjectName: b1.subjectName, type: 'Practical', startTime: ts1.startTime, endTime: ts2.endTime })) continue
+            if (b2 && hasSubjectConflict(sectionKey, day, { subjectCode: b2.subjectCode, subjectName: b2.subjectName, type: 'Practical', startTime: ts1.startTime, endTime: ts2.endTime })) continue
 
-          const allFree =
-            isSectionFree(sectionKey, day, ts1.startTime) &&
-            isSectionFree(sectionKey, day, ts2.startTime) &&
-            isFacultyFree(b1.facultyId, day, ts1.startTime) &&
-            isFacultyFree(b1.facultyId, day, ts2.startTime) &&
-            isFacultyFree(b2.facultyId, day, ts1.startTime) &&
-            isFacultyFree(b2.facultyId, day, ts2.startTime) &&
-            isRoomFree(b1.room, day, ts1.startTime) &&
-            isRoomFree(b1.room, day, ts2.startTime) &&
-            isRoomFree(b2.room, day, ts1.startTime) &&
-            isRoomFree(b2.room, day, ts2.startTime)
+            markSection(sectionKey, day, ts1.startTime)
+            markSection(sectionKey, day, ts2.startTime)
+            markFaculty(b1.facultyId, day, ts1.startTime)
+            markFaculty(b1.facultyId, day, ts2.startTime)
+            markRoom(b1.room, day, ts1.startTime)
+            markRoom(b1.room, day, ts2.startTime)
+            if (b2) {
+              markFaculty(b2.facultyId, day, ts1.startTime)
+              markFaculty(b2.facultyId, day, ts2.startTime)
+              markRoom(b2.room, day, ts1.startTime)
+              markRoom(b2.room, day, ts2.startTime)
+            }
+            markDayLab(sectionKey, day)
 
-          if (!allFree) continue
+            const slotUid = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
+            const baseSlot = { day, branch, section, semester, type: 'Practical', isPractical: true, startTime: ts1.startTime, endTime: ts2.endTime || ts2.startTime, mergedSlots: 2 }
 
-          markSection(sectionKey, day, ts1.startTime)
-          markSection(sectionKey, day, ts2.startTime)
-          markFaculty(b1.facultyId, day, ts1.startTime)
-          markFaculty(b1.facultyId, day, ts2.startTime)
-          markFaculty(b2.facultyId, day, ts1.startTime)
-          markFaculty(b2.facultyId, day, ts2.startTime)
-          markRoom(b1.room, day, ts1.startTime)
-          markRoom(b1.room, day, ts2.startTime)
-          markRoom(b2.room, day, ts1.startTime)
-          markRoom(b2.room, day, ts2.startTime)
+            generatedSlots.push({ ...baseSlot, id: `prac-b1-${slotUid()}`, subjectCode: b1.subjectCode, subjectName: b1.subjectName, facultyId: b1.facultyId, facultyName: b1.facultyName, facultyShort: getFacultyShort(b1.facultyName, faculty), room: b1.room, batch: 'B1' })
+            registerSubject(sectionKey, day, { subjectCode: b1.subjectCode, subjectName: b1.subjectName, type: 'Practical', startTime: ts1.startTime, endTime: ts2.endTime })
+            if (b1.facultyId && facultyLoadMap[b1.facultyId]) facultyLoadMap[b1.facultyId].scheduledPractical++
 
-          const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
-          const baseSlot = {
-            day, branch, section, semester,
-            type: 'Practical', isPractical: true,
-            startTime: ts1.startTime,
-            endTime: ts2.endTime || ts2.startTime,
-            mergedSlots: 2,
+            if (b2) {
+              generatedSlots.push({ ...baseSlot, id: `prac-b2-${slotUid()}`, subjectCode: b2.subjectCode, subjectName: b2.subjectName, facultyId: b2.facultyId, facultyName: b2.facultyName, facultyShort: getFacultyShort(b2.facultyName, faculty), room: b2.room, batch: 'B2' })
+              registerSubject(sectionKey, day, { subjectCode: b2.subjectCode, subjectName: b2.subjectName, type: 'Practical', startTime: ts1.startTime, endTime: ts2.endTime })
+              if (b2.facultyId && facultyLoadMap[b2.facultyId]) facultyLoadMap[b2.facultyId].scheduledPractical++
+            }
+
+            unit.sessionsRemaining -= 1
+            practicalScheduled += 1
+            placed = true
           }
+        }
 
-          generatedSlots.push({
-            ...baseSlot,
-            id: `prac-b1-${uid()}`,
-            subjectCode: b1.subjectCode,
-            subjectName: b1.subjectName,
-            facultyId: b1.facultyId,
-            facultyName: b1.facultyName,
-            facultyShort: getFacultyShort(b1.facultyName, faculty),
-            room: b1.room,
-            batch: 'B1',
-          })
-
-          generatedSlots.push({
-            ...baseSlot,
-            id: `prac-b2-${uid()}`,
-            subjectCode: b2.subjectCode,
-            subjectName: b2.subjectName,
-            facultyId: b2.facultyId,
-            facultyName: b2.facultyName,
-            facultyShort: getFacultyShort(b2.facultyName, faculty),
-            room: b2.room,
-            batch: 'B2',
-          })
-
-          b1.sessionsRemaining -= 1
-          b2.sessionsRemaining -= 1
-          practicalScheduled += 1
-          placed = true
+        if (!placed) {
+          alerts.push(`Unable to schedule practical for ${b1.subjectName} (${b1.facultyName}) in ${branch}-${section} Sem ${semester}`)
+          break
         }
       }
-
-      if (!placed) {
-        break
-      }
     }
-
-    const unscheduled = entries.filter(e => e.sessionsRemaining > 0)
-    unscheduled.forEach(e => {
-      alerts.push(`Unable to schedule practical session for ${e.subjectName} (${e.facultyName}) in ${branch}-${section} semester ${semester}`)
-    })
   })
 
   // ── PASS 2: Schedule Theory ───────────────────────────────────────────────
+  // Strategy: round-robin across working days so each subject spreads evenly.
+  // This guarantees NO subject appears twice on the same day unless there are
+  // more required lectures than working days (and only then as a last resort).
   Object.values(groupMap).forEach(group => {
     const { branch, section, semester, theories } = group
     const sectionKey = `${branch}-${section}-${semester}`
@@ -389,12 +593,24 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
       if (facId) facultyLoadMap[facId].assignedTheory += hoursPerWeek
 
       let placed = 0
-      for (const day of workingDays) {
-        if (placed >= hoursPerWeek) break
+
+      // ── Round 1: try to place AT MOST ONE lecture per day (spread first) ──
+      // Iterate days round-robin until we've placed all lectures or exhausted days.
+      // Only if we still have remaining lectures after a full sweep do we allow
+      // a second lecture on the same day (round 2 below).
+      const tryPlaceOnDay = (day, allowSameDayRepeat) => {
+        if (placed >= hoursPerWeek) return
+        // ── RULE: no same subject twice on the same day (unless forced) ──
+        if (!allowSameDayRepeat &&
+          hasSubjectConflict(sectionKey, day, { subjectCode: subj.subjectCode, subjectName: subj.subjectName, type: 'Theory' })) {
+          return
+        }
         for (const ts of lectureSlots) {
           if (placed >= hoursPerWeek) break
           if (!isSectionFree(sectionKey, day, ts.startTime)) continue
           if (!isFacultyFree(facId, day, ts.startTime)) continue
+          // Always block the same subject on the same day in strict mode
+          if (hasSubjectConflict(sectionKey, day, { subjectCode: subj.subjectCode, subjectName: subj.subjectName, type: 'Theory', startTime: ts.startTime, endTime: ts.endTime })) continue
 
           markSection(sectionKey, day, ts.startTime)
           markFaculty(facId, day, ts.startTime)
@@ -417,9 +633,28 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
             hoursPerWeek,
           })
 
+          registerSubject(sectionKey, day, { subjectCode: subj.subjectCode, subjectName: subj.subjectName, type: 'Theory', startTime: ts.startTime, endTime: ts.endTime })
+
           if (facId) facultyLoadMap[facId].scheduledTheory++
           theoryScheduled++
           placed++
+          break // only ONE slot per day per pass
+        }
+      }
+
+      // Pass A: one lecture per day, cycle through all working days
+      for (const day of workingDays) {
+        if (placed >= hoursPerWeek) break
+        tryPlaceOnDay(day, false)
+      }
+
+      // Pass B: if load > number of working days, do a second sweep allowing
+      //         a second lecture on days that still have a free slot
+      //         (hasSubjectConflict still blocks if already placed twice that day)
+      if (placed < hoursPerWeek) {
+        for (const day of workingDays) {
+          if (placed >= hoursPerWeek) break
+          tryPlaceOnDay(day, false) // still respect "no same subject twice in a day"
         }
       }
     })
@@ -440,6 +675,9 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
       })
     })
   })
+
+  // ── Merge fixed activity slots into output ────────────────────────────────
+  generatedSlots.push(...fixedSlotEntries)
 
   // ── Build groups list ─────────────────────────────────────────────────────
   const groups = Object.values(groupMap).map(({ branch, section, semester }) => ({ branch, section, semester }))
@@ -464,7 +702,35 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
     alerts.push(`Missing active mappings for: ${unmappedSubjects.join(', ')}`)
   }
 
-  const status = alerts.length === 0 ? 'success' : pendingClasses > 5 ? 'error' : 'warning'
+  const sameSubjectConflicts = []
+  const labDailyLimitConflicts = []
+  const seenSubjectSlots = {}
+  generatedSlots.filter(slot => slot.type !== 'lunch').forEach(slot => {
+    const key = `${slot.branch}-${slot.section}-${slot.semester}|${slot.day}`
+    if (!seenSubjectSlots[key]) seenSubjectSlots[key] = []
+    const existing = seenSubjectSlots[key].find(previous => sameSubject(previous, slot) && !continuousPractical(previous, slot))
+    if (existing) {
+      sameSubjectConflicts.push({
+        type: 'sameSubjectSameDay',
+        message: 'Same subject scheduled multiple times on the same day.',
+        section: `${slot.branch}-${slot.section}-${slot.semester}`,
+        subject: slot.subjectName || slot.subjectCode,
+        day: slot.day,
+        existingPeriod: existing.startTime,
+        conflictingPeriod: slot.startTime,
+      })
+    }
+    seenSubjectSlots[key].push(slot)
+  })
+
+  const pairedLabConflicts = validatePairedLabSessions(generatedSlots)
+  const dailyLimitConflicts = validateLabDailyLimit(generatedSlots)
+  labDailyLimitConflicts.push(...dailyLimitConflicts)
+  pairedLabConflicts.forEach(conflict => alerts.push(`${conflict.message} Section: ${conflict.section}; Day: ${conflict.day}; Existing Period: ${conflict.existingPeriod}; Conflicting Period: ${conflict.conflictingPeriod}`))
+  sameSubjectConflicts.forEach(conflict => alerts.push(`${conflict.message} Section: ${conflict.section}; Subject: ${conflict.subject}; Day: ${conflict.day}; Existing Period: ${conflict.existingPeriod}; Conflicting Period: ${conflict.conflictingPeriod}`))
+  dailyLimitConflicts.forEach(conflict => alerts.push(`${conflict.message} Section: ${conflict.section}; Day: ${conflict.day}`))
+
+  const status = sameSubjectConflicts.length > 0 || pairedLabConflicts.length > 0 || labDailyLimitConflicts.length > 0 ? 'error' : alerts.length === 0 ? 'success' : pendingClasses > 5 ? 'error' : 'warning'
 
   const validationReport = {
     theoryRequired, theoryScheduled,
@@ -472,6 +738,9 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
     facultyConflicts: 0, roomConflicts: 0, labConflicts: 0, studentConflicts: 0,
     pendingClasses, status,
     facultyLoad,
+    sameSubjectConflicts,
+    pairedLabConflicts,
+    labDailyLimitConflicts,
     alerts,
   }
 
@@ -489,7 +758,7 @@ function generateSchedule({ collegeTiming, subjects, faculty, mappings, semType 
 function ValidationReport({ report }) {
   if (!report) return null
   const { theoryRequired, theoryScheduled, practicalRequired, practicalScheduled,
-    pendingClasses, status, facultyLoad, alerts } = report
+    pendingClasses, status, facultyLoad, sameSubjectConflicts = [], pairedLabConflicts = [], labDailyLimitConflicts = [], alerts } = report
 
   const statusColor = status === 'success' ? 'green' : status === 'warning' ? 'amber' : 'red'
   const statusIcon = status === 'success' ? '✅' : status === 'warning' ? '⚠️' : '❌'
@@ -520,6 +789,33 @@ function ValidationReport({ report }) {
         {pendingClasses > 0 && (
           <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
             ⚠️ {pendingClasses} class slot(s) pending — may need more working days or faculty
+          </div>
+        )}
+
+        {sameSubjectConflicts.length > 0 && (
+          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <strong>Same subject scheduled multiple times on the same day.</strong>
+            {sameSubjectConflicts.map((conflict, index) => (
+              <div key={index} className="mt-1">Section: {conflict.section} · Subject: {conflict.subject} · Day: {conflict.day} · Existing Period: {conflict.existingPeriod} · Conflicting Period: {conflict.conflictingPeriod}</div>
+            ))}
+          </div>
+        )}
+
+        {pairedLabConflicts.length > 0 && (
+          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <strong>Paired batch lab scheduling conflict.</strong>
+            {pairedLabConflicts.map((conflict, index) => (
+              <div key={index} className="mt-1">Section: {conflict.section} · Day: {conflict.day} · Existing Period: {conflict.existingPeriod} · Conflicting Period: {conflict.conflictingPeriod}</div>
+            ))}
+          </div>
+        )}
+
+        {labDailyLimitConflicts.length > 0 && (
+          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <strong>Maximum one synchronized lab session per section per day.</strong>
+            {labDailyLimitConflicts.map((conflict, index) => (
+              <div key={index} className="mt-1">Section: {conflict.section} · Day: {conflict.day}</div>
+            ))}
           </div>
         )}
 
@@ -590,6 +886,7 @@ const Step6GenerateTimetable = ({
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [usedFixedSlots, setUsedFixedSlots] = useState([])
 
   const semType = 'all'
   const allowedSems = getAllowedSems(semType)
@@ -619,7 +916,12 @@ const Step6GenerateTimetable = ({
 
       await new Promise(r => setTimeout(r, 1200))
 
-      const result = generateSchedule({ collegeTiming, subjects, faculty, mappings, semType })
+      // Load fixed activity slots from localStorage
+      const fixedSlotsRes = await fixedSlotApi.getAll()
+      const fixedSlots = (fixedSlotsRes.success ? fixedSlotsRes.data : []) || []
+      setUsedFixedSlots(fixedSlots)
+
+      const result = generateSchedule({ collegeTiming, subjects, faculty, mappings, semType, fixedSlots })
 
       const timetableData = {
         collegeTiming,
@@ -628,12 +930,24 @@ const Step6GenerateTimetable = ({
         stats: result.stats,
         validationReport: result.validationReport,
         groups: result.groups,
+        fixedSlots,
         name: `${collegeTiming.collegeName} — All Semesters`,
         generatedAt: new Date().toISOString(),
         semType,
       }
 
       setPreview({ data: timetableData, stats: result.stats, validationReport: result.validationReport })
+
+      const blockingErrors = [
+        ...(result.validationReport?.sameSubjectConflicts || []),
+        ...(result.validationReport?.pairedLabConflicts || []),
+        ...(result.validationReport?.labDailyLimitConflicts || [])
+      ]
+
+      if (blockingErrors.length > 0) {
+        setError(blockingErrors[0].message || 'Timetable rejected: hard schedule conflict detected.')
+        return
+      }
 
       if (onGenerate) {
         await onGenerate(timetableData)
@@ -720,6 +1034,7 @@ const Step6GenerateTimetable = ({
                 { label: 'Groups Scheduled', val: preview.stats.totalGroups },
                 { label: 'Total Slots', val: preview.stats.totalSlots },
                 { label: 'Subjects Used', val: preview.stats.semSubjects },
+                ...(usedFixedSlots?.length > 0 ? [{ label: 'Fixed Activity Slots', val: usedFixedSlots.length }] : []),
               ].map(({ label, val }) => (
                 <div key={label} className="bg-white rounded-lg p-3 text-center border border-green-100">
                   <p className="text-2xl font-bold text-green-700">{val}</p>
@@ -775,7 +1090,7 @@ const Step6GenerateTimetable = ({
 
       {preview && (
         <button
-          onClick={() => { setPreview(null); setError(null) }}
+          onClick={() => { setPreview(null); setError(null); setUsedFixedSlots([]) }}
           className="mt-4 text-sm text-gray-500 hover:text-gray-700 underline mx-auto block"
         >
           Regenerate timetable

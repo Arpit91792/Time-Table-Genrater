@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { Plus, Calendar, FileText, Download, Upload, Users, BookOpen, Settings, Clock, Database, CheckCircle, AlertCircle, Eye, Trash2 } from 'lucide-react'
+import { Plus, Calendar, FileText, Download, Upload, Users, BookOpen, Settings, Clock, Database, CheckCircle, AlertCircle, Eye } from 'lucide-react'
 import Wizard from '../components/wizard/Wizard'
 import TimetableViewer from '../components/TimetableViewer'
 import { useTimetable } from '../context/TimetableContext'
@@ -23,7 +23,6 @@ const Dashboard = () => {
             getStatistics,
             startNewWizard,
             updateTimetable,
-            deleteTimetable
       } = useTimetable()
 
       const statistics = getStatistics()
@@ -423,16 +422,6 @@ const Dashboard = () => {
                                                                         >
                                                                               <Eye className="h-4 w-4" />
                                                                               View
-                                                                        </button>
-                                                                        <button
-                                                                              onClick={async () => {
-                                                                                    if (!window.confirm('Delete this timetable permanently?')) return
-                                                                                    await deleteTimetable(tt._id)
-                                                                              }}
-                                                                              className="px-3 py-2 bg-red-50 text-red-600 text-sm font-semibold rounded-lg hover:bg-red-100 border border-red-200 transition-all flex items-center justify-center gap-1"
-                                                                              title="Delete timetable"
-                                                                        >
-                                                                              <Trash2 className="h-4 w-4" />
                                                                         </button>
                                                                   </div>
                                                             </div>

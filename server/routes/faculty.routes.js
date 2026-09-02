@@ -48,5 +48,6 @@ router.post('/', facultyCreateValidation, validate, sanitize, facultyController.
 router.put('/:id', isValidObjectId, facultyUpdateValidation, validate, sanitize, facultyController.updateFaculty);
 router.delete('/:id', isValidObjectId, facultyController.deleteFaculty);
 router.put('/:id/availability', isValidObjectId, facultyController.updateAvailability);
+router.post('/:id/lock-time', isValidObjectId, facultyController.lockTime);
 
 module.exports = router;

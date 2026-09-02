@@ -20,6 +20,9 @@ router.get('/:id', isValidObjectId, timetableController.getTimetable);
 // Timetable generation endpoint
 router.post('/generate', timetableGenerateValidation, validate, sanitize, timetableController.generateTimetable);
 
+// Lock or protect a generated slot by creating a fixed-slot and marking it locked
+router.post('/:id/lock-slot', isValidObjectId, timetableController.lockSlot);
+
 // Other routes (would be protected in production)
 router.put('/:id', isValidObjectId, timetableController.updateTimetable);
 router.delete('/:id', isValidObjectId, timetableController.deleteTimetable);

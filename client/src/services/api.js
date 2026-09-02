@@ -201,6 +201,41 @@ export const timetableApi = {
 };
 
 
+// ── Fixed Activity Slots ──────────────────────────────────────────────────────
+
+const LS_FIXED_SLOTS = 'tt_fixed_slots';
+
+export const fixedSlotApi = {
+  getAll: async () => {
+    const list = load(LS_FIXED_SLOTS) || [];
+    return ok(list);
+  },
+  create: async (slotData) => {
+    const list = load(LS_FIXED_SLOTS) || [];
+    const record = {
+      ...slotData,
+      _id: newId(),
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+    save(LS_FIXED_SLOTS, [...list, record]);
+    return ok(record);
+  },
+  update: async (id, slotData) => {
+    const list = load(LS_FIXED_SLOTS) || [];
+    const idx = list.findIndex((s) => s._id === id);
+    if (idx === -1) return fail('Fixed slot not found');
+    list[idx] = { ...list[idx], ...slotData, _id: id };
+    save(LS_FIXED_SLOTS, list);
+    return ok(list[idx]);
+  },
+  delete: async (id) => {
+    const list = (load(LS_FIXED_SLOTS) || []).filter((s) => s._id !== id);
+    save(LS_FIXED_SLOTS, list);
+    return ok({ _id: id });
+  },
+};
+
 // ── Misc (kept for compatibility) ─────────────────────────────────────────────
 
 export const exportApi = {
