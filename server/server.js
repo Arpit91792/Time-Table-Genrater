@@ -19,7 +19,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
 
 // MongoDB connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/timetable-generator', {
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/timetable-generator', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(() => {
@@ -150,12 +150,10 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 5003;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 API available at http://localhost:${PORT}/api`);
-  console.log(`🔧 Health check: http://localhost:${PORT}/api/health`);
-});
 
-module.exports = app;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 API available at http://localhost:${PORT}/api`);
+  console.log(`🔍 Health check: http://localhost:${PORT}/api/health`);
+});

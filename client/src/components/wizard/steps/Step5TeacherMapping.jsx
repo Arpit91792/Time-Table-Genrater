@@ -98,13 +98,13 @@ const Step4TeacherMapping = ({
             : (persistedMappings || [])
     )
 
-    // When the persisted store updates, resync only if the wizard has no current mappings.
+    // Always keep local display in sync with the persisted store.
+    // The persisted store IS the source of truth — every createTeacherMapping call
+    // updates it, so we always want to show everything in it.
     useEffect(() => {
-        if (!Array.isArray(selectedMappings) || selectedMappings.length === 0) {
-            setMappings(persistedMappings || [])
-            if (onSelectMappings) onSelectMappings(persistedMappings || [])
-        }
-    }, [persistedMappings, selectedMappings, onSelectMappings])
+        setMappings(persistedMappings || [])
+        if (onSelectMappings) onSelectMappings(persistedMappings || [])
+    }, [persistedMappings])
 
     const pushMappings = (next) => {
         // Only for undo/redo local state; actual persistence goes through API calls
@@ -566,7 +566,7 @@ const Step4TeacherMapping = ({
                                     </td>
                                 </tr>
                             ) : filteredMappings.map((mapping, index) => (
-                                <tr key={mapping.id} className="hover:bg-blue-50/50 transition-colors group">
+                                <tr key={mapping._id || mapping.id || index} className="hover:bg-blue-50/50 transition-colors group">
                                     {/* Sticky Left */}
                                     <td className="sticky left-0 z-20 bg-white group-hover:bg-blue-50/90 px-4 py-2 border-r border-gray-200 text-center text-gray-400 font-medium shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                         {index + 1}

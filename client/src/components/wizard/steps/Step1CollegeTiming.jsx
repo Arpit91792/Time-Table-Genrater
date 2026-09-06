@@ -213,10 +213,28 @@ const Step1CollegeTiming = ({ data, onChange, onSave, isSaving, savedData }) => 
                                           </div>
 
                                           <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-3">Semester *</label>
-                                                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                                                      <p className="font-semibold text-emerald-900">All Semesters will be generated automatically</p>
-                                                      <p className="text-sm text-emerald-700 mt-1">No semester or section selection is required. The scheduler will analyze all imported data and create every timetable in one click.</p>
+                                                <label className="block text-sm font-medium text-gray-700 mb-3">Semester Type *</label>
+                                                <div className="grid grid-cols-3 gap-3">
+                                                      {[
+                                                            { value: 'odd', label: 'Odd', sems: '1, 3, 5, 7', color: 'blue', dot: '🔵' },
+                                                            { value: 'even', label: 'Even', sems: '2, 4, 6, 8', color: 'purple', dot: '🟣' },
+                                                            { value: 'all', label: 'All', sems: '1 – 8', color: 'green', dot: '🟢' },
+                                                      ].map(opt => {
+                                                            const active = (currentData.semesterType || 'odd') === opt.value
+                                                            const base = 'flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 cursor-pointer transition-all duration-200 select-none'
+                                                            const cls = active
+                                                                  ? opt.value === 'odd' ? `${base} border-blue-500   bg-blue-50   text-blue-800`
+                                                                        : opt.value === 'even' ? `${base} border-purple-500 bg-purple-50 text-purple-800`
+                                                                              : `${base} border-green-500  bg-green-50  text-green-800`
+                                                                  : `${base} border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:bg-gray-100`
+                                                            return (
+                                                                  <button key={opt.value} type="button" onClick={() => handleChange('semesterType', opt.value)} className={cls}>
+                                                                        <span className="text-xl mb-1">{opt.dot}</span>
+                                                                        <span className="font-bold text-sm">{opt.label}</span>
+                                                                        <span className="text-xs mt-0.5 opacity-75">Sem {opt.sems}</span>
+                                                                  </button>
+                                                            )
+                                                      })}
                                                 </div>
                                           </div>
                                     </div>
@@ -442,7 +460,9 @@ const Step1CollegeTiming = ({ data, onChange, onSave, isSaving, savedData }) => 
                               <div className="bg-white p-4 rounded-lg border border-blue-100">
                                     <p className="text-sm text-gray-600">Semester</p>
                                     <p className="font-semibold text-gray-900 capitalize">
-                                          {(currentData.semesterType || 'odd') === 'odd' ? '🔵 Odd (1,3,5,7)' : '🟣 Even (2,4,6,8)'}
+                                          {(currentData.semesterType || 'odd') === 'odd' ? '🔵 Odd (1,3,5,7)'
+                                                : (currentData.semesterType) === 'even' ? '🟣 Even (2,4,6,8)'
+                                                      : '🟢 All (1–8)'}
                                     </p>
                               </div>
                               <div className="bg-white p-4 rounded-lg border border-blue-100">
